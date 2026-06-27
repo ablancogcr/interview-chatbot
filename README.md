@@ -2,7 +2,7 @@
 
 Standalone FastAPI backend for the "Interview Andres" chatbot on Andres Blanco's portfolio website.
 
-The API answers visitor questions using the controlled biography document at `app/data/biography.md`. Version 1 uses simple markdown section retrieval and sends only the selected sections to the OpenAI Responses API.
+The API answers visitor questions using the controlled biography document at `app/data/biography.md`. It uses local hybrid retrieval to select the most relevant biography sections, then sends only those selected sections to the OpenAI Responses API.
 
 The real biography file is intentionally not committed. The repository includes `app/data/biography.example.md` as a safe placeholder.
 
@@ -39,6 +39,36 @@ cp app/data/biography.example.md app/data/biography.md
 ```
 
 Replace the placeholder content in `app/data/biography.md` with verified Andres profile details. Do not commit the real biography file.
+
+## Biography Retrieval
+
+The chatbot does not send the full biography to OpenAI on every request. For each `/chat` request, the API:
+
+1. Loads `app/data/biography.md`.
+2. Splits the markdown into sections using headings such as `## Experience` and `### Tell me about yourself`.
+3. Scores sections locally with hybrid retrieval.
+4. Sends only the top selected sections to OpenAI as the biography context.
+
+The retriever combines:
+
+- Exact and near-exact matching for interview-style `###` question headings.
+- Optional `Tags:` and `Category:` metadata under section headings.
+- BM25-style keyword scoring over section titles, metadata, and content.
+- Stable tie-breaking by the section's original order in the biography.
+
+The API currently sends up to 3 selected sections per question. This keeps token usage predictable while allowing the biography file to grow.
+
+Optional section metadata can be added like this:
+
+```md
+## Portfolio Project: Web Analytics Data Pipeline
+Tags: ETL, BigQuery, analytics engineering, dashboard automation
+Category: Projects
+
+Built a reporting pipeline for web analytics and business reporting use cases.
+```
+
+`Tags:` and `Category:` help retrieval, but they are not sent to OpenAI in the formatted biography context. Existing sections work without metadata, so tags can be added gradually where retrieval needs more control.
 
 ## Environment Variables
 
@@ -95,7 +125,7 @@ Example response:
 
 ```json
 {
-  "answer": "I can't answer that question yet, but I will get back to you!",
+  "answer": "I can't answer that question yet, you can reach out to me anytime, my contact details are at the Contact page!",
   "sources": ["Projects"]
 }
 ```
