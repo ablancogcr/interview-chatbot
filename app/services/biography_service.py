@@ -138,11 +138,24 @@ def _build_section(
     )
 
 
-def load_biography(path: Path = BIOGRAPHY_PATH) -> str:
-    """Load the private biography file, falling back to the public placeholder."""
+def biography_file_is_ready(path: Path = BIOGRAPHY_PATH) -> bool:
+    """Return whether the real biography exists and contains non-whitespace text."""
 
-    if path.exists():
-        return path.read_text(encoding="utf-8")
+    return path.is_file() and bool(path.read_text(encoding="utf-8").strip())
+
+
+def load_biography(
+    path: Path = BIOGRAPHY_PATH,
+    *,
+    allow_example: bool = True,
+) -> str:
+    """Load the biography, allowing the public placeholder only in development."""
+
+    if biography_file_is_ready(path):
+        return path.read_text(encoding="utf-8").strip()
+
+    if not allow_example:
+        raise RuntimeError("The production biography is missing or empty.")
 
     return BIOGRAPHY_EXAMPLE_PATH.read_text(encoding="utf-8")
 
@@ -285,10 +298,15 @@ def _tag_score(question_keywords: set[str], section: BiographySection) -> float:
     return len(question_keywords & metadata_keywords) * TAG_MATCH_BOOST
 
 
-def retrieve_sections(question: str, limit: int = MAX_SECTIONS) -> list[BiographySection]:
+def retrieve_sections(
+    question: str,
+    limit: int = MAX_SECTIONS,
+    *,
+    allow_example: bool = True,
+) -> list[BiographySection]:
     """Return the highest-scoring biography sections for a visitor question."""
 
-    sections = split_sections(load_biography())
+    sections = split_sections(load_biography(allow_example=allow_example))
     question_tokens = _tokens(question)
     question_keywords = set(question_tokens)
 

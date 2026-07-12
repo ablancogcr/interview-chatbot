@@ -73,10 +73,24 @@ Built a reporting pipeline for web analytics and business reporting use cases.
 ## Environment Variables
 
 ```env
+APP_ENV=development
 OPENAI_API_KEY=your_openai_api_key_here
 OPENAI_MODEL=gpt-4.1-mini
+OPENAI_TIMEOUT_SECONDS=15
+OPENAI_MAX_RETRIES=1
+OPENAI_MAX_OUTPUT_TOKENS=350
 ALLOWED_ORIGINS=http://localhost:3000,https://andresblanco.dev
 CHAT_API_SECRET=your_server_side_secret_here
+TRUSTED_HOSTS=localhost,127.0.0.1,testserver
+TRUSTED_PROXY_CIDRS=
+CHAT_RATE_LIMIT=10
+CHAT_GLOBAL_RATE_LIMIT=60
+CHAT_RATE_LIMIT_WINDOW_SECONDS=60
+CHAT_RATE_LIMIT_MAX_KEYS=10000
+CHAT_MAX_CONCURRENCY=4
+CHAT_CONCURRENCY_WAIT_SECONDS=0.25
+CHAT_MAX_BODY_BYTES=16384
+LOG_CHAT_CONTENT=true
 API_TITLE=Andres Interview API
 API_VERSION=0.1.0
 ```
@@ -84,6 +98,10 @@ API_VERSION=0.1.0
 `ALLOWED_ORIGINS` accepts a comma-separated list of frontend origins. In production, set this to the portfolio domain that should call `/chat`.
 
 Set `CHAT_API_SECRET` in Railway and in the Next.js server environment. Do not expose it with a public `NEXT_PUBLIC_` prefix.
+
+Set `APP_ENV=production` on Railway. Production startup fails unless the OpenAI key, a secret of at least 32 characters, explicit allowed origins, explicit trusted hosts, and a non-empty `app/data/biography.md` are present. Set `TRUSTED_HOSTS` to the exact public API hostname plus any Railway hostname used for health checks; never use `*`.
+
+The Railway start command disables Uvicorn proxy-header rewriting so this application can validate forwarding itself. Keep `TRUSTED_PROXY_CIDRS` empty until the current Railway proxy CIDRs have been confirmed, then configure only those CIDRs. Never set it to `0.0.0.0/0` or `::/0`. When it is empty, spoofed `X-Forwarded-For` headers are ignored.
 
 Generate a local server-side secret with PowerShell:
 
@@ -104,6 +122,8 @@ uv run uvicorn app.main:app --reload
 ```
 
 The API docs are available at `http://localhost:8000/docs`.
+
+`GET /health` is a liveness check. `GET /ready` returns HTTP 200 only when the OpenAI key and real biography are available and all production security requirements pass; it reports booleans without exposing configuration values.
 
 ## Test
 
@@ -164,11 +184,15 @@ await fetch(`${process.env.INTERVIEW_API_URL}/chat`, {
 });
 ```
 
-If `CHAT_API_SECRET` is not configured, `/chat` falls back to requiring an `Origin` header that matches `ALLOWED_ORIGINS`. Requests from missing or unapproved origins are rejected before calling OpenAI.
+In development, if `CHAT_API_SECRET` is not configured, `/chat` falls back to requiring an `Origin` header that matches `ALLOWED_ORIGINS`. `Origin` is not authentication and production refuses to start without the server-side secret. Browser-shaped requests that include an Origin must pass both secret and origin checks.
 
-The API also applies a simple in-memory rate limit of 10 chat requests per minute per client IP. This is suitable for a small single-instance Railway deployment. For multiple instances or stricter limits, use a shared rate limiter such as Redis or an API gateway.
+The API applies bounded per-client and global sliding-window limits, a concurrency ceiling, and a streaming request-body limit. Expired limiter buckets are removed and the bucket map has a hard capacity. For multiple instances, enforce the primary public limit in the Next.js route or an API gateway; this backend limiter remains defense in depth.
 
-Completed chat requests are logged to stdout for Railway logs and to `logs/chat.log` during local runs. Each log includes the client IP, origin, model, question, answer, selected biography sources, and token usage. API keys and chat secrets are never logged.
+Completed chat requests are logged to stdout for Railway logs and to `logs/chat.log` during local runs. Logs contain the visitor prompt and model answer together with a request ID, keyed visitor hash, status, latency, model, selected biography sources, and token usage. Prompt and answer sizes are already bounded by API validation. JSON encoding prevents multiline log injection, while raw IPs, API keys, and chat secrets remain excluded. Set `LOG_CHAT_CONTENT=false` to disable conversation-content logging without a code change. Configure Railway log access and retention according to the portfolio privacy policy.
+
+Model calls use explicit timeouts, limited retries, an output-token ceiling, `store=False`, and a privacy-preserving safety identifier. The system prompt treats biography and visitor content as untrusted, refuses unsupported claims and role changes, limits answer length, and requests plain text. The backend rejects HTML, Markdown links, unsafe URL schemes, control characters, and oversized model output.
+
+The Next.js frontend must render `answer` as plain text. If Markdown is introduced later, disable raw HTML, sanitize with a strict allowlist, and permit only safe URL schemes. Configure OpenAI project spending alerts and a hard monthly budget in the OpenAI dashboard.
 
 The local log file is created automatically after the app starts. It is ignored by git.
 
@@ -177,12 +201,14 @@ The local log file is created automatically after the app starts. It is ignored 
 Railway should use this start command:
 
 ```bash
-uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT
+uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT --no-proxy-headers
 ```
 
 Set the same environment variables in Railway. Do not commit real API keys.
 
 Generate a strong `CHAT_API_SECRET`, then set the same value in Railway and in the Next.js server environment. Keep it private.
+
+Set the Railway health-check path to `/ready`. Before enabling `TRUSTED_PROXY_CIDRS`, confirm Railway's current documented proxy network ranges and test that a caller-supplied `X-Forwarded-For` value cannot become the rate-limit identity.
 
 ## Repository Safety Checklist
 
@@ -190,4 +216,6 @@ Generate a strong `CHAT_API_SECRET`, then set the same value in Railway and in t
 - `app/data/biography.md` is ignored and must not be committed.
 - `app/data/biography.example.md` is the public placeholder biography.
 - `OPENAI_API_KEY` and `CHAT_API_SECRET` must be set as Railway environment variables.
-- Chat logs include questions and answers, so avoid logging private user data from the frontend.
+- Production requires a real biography and never falls back to the example file.
+- Chat logs include bounded prompts and answers for observability, but omit raw client IPs and secrets.
+- CI runs the locked test suite and `pip-audit` on every push and pull request.

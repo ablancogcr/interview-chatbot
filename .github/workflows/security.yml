@@ -1,0 +1,25 @@
+name: Security and tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install locked dependencies
+        run: uv sync --locked --all-groups
+      - name: Verify lockfile
+        run: uv lock --check
+      - name: Run tests
+        run: uv run pytest -q
+      - name: Audit installed dependencies
+        run: uv run pip-audit

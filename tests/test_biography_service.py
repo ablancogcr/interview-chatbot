@@ -1,3 +1,5 @@
+import pytest
+
 from app.services import biography_service
 
 
@@ -38,7 +40,11 @@ I am an analytics and automation professional with a technical background.
 ## Other Background
 General professional information.
 """
-    monkeypatch.setattr(biography_service, "load_biography", lambda: markdown)
+    monkeypatch.setattr(
+        biography_service,
+        "load_biography",
+        lambda **_kwargs: markdown,
+    )
 
     sections = biography_service.retrieve_sections("Tell me about yourself.")
 
@@ -54,7 +60,11 @@ Built automated reporting for business stakeholders.
 ## Customer Service
 Managed support teams and service quality.
 """
-    monkeypatch.setattr(biography_service, "load_biography", lambda: markdown)
+    monkeypatch.setattr(
+        biography_service,
+        "load_biography",
+        lambda **_kwargs: markdown,
+    )
 
     sections = biography_service.retrieve_sections("What ETL work has Andres done?")
 
@@ -71,7 +81,11 @@ Built BigQuery SQL pipelines for dashboard automation and web analytics reportin
 ## Customer Service
 Led customer support teams and improved operational workflows.
 """
-    monkeypatch.setattr(biography_service, "load_biography", lambda: markdown)
+    monkeypatch.setattr(
+        biography_service,
+        "load_biography",
+        lambda **_kwargs: markdown,
+    )
 
     sections = biography_service.retrieve_sections(
         "Which BigQuery SQL dashboard project has Andres built?"
@@ -93,7 +107,11 @@ Third section.
 ## Fourth
 Fourth section.
 """
-    monkeypatch.setattr(biography_service, "load_biography", lambda: markdown)
+    monkeypatch.setattr(
+        biography_service,
+        "load_biography",
+        lambda **_kwargs: markdown,
+    )
 
     sections = biography_service.retrieve_sections("to be of me")
 
@@ -107,7 +125,11 @@ Analytics and reporting background.
 ## Customer Service
 Support leadership and operations.
 """
-    monkeypatch.setattr(biography_service, "load_biography", lambda: markdown)
+    monkeypatch.setattr(
+        biography_service,
+        "load_biography",
+        lambda **_kwargs: markdown,
+    )
 
     sections = biography_service.retrieve_sections("Kubernetes infrastructure")
 
@@ -116,3 +138,17 @@ Support leadership and operations.
         biography_service.format_context(sections)
         == "No relevant biography sections were found for this question."
     )
+
+
+def test_production_biography_does_not_fall_back_to_example(tmp_path) -> None:
+    missing_path = tmp_path / "biography.md"
+
+    with pytest.raises(RuntimeError, match="missing or empty"):
+        biography_service.load_biography(missing_path, allow_example=False)
+
+
+def test_empty_production_biography_is_not_ready(tmp_path) -> None:
+    empty_path = tmp_path / "biography.md"
+    empty_path.write_text("   ", encoding="utf-8")
+
+    assert biography_service.biography_file_is_ready(empty_path) is False
