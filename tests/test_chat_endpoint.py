@@ -12,15 +12,20 @@ from app.services.openai_service import OpenAIAnswer, OpenAIServiceError
 
 
 client = TestClient(app)
+TEST_CHAT_SECRET = "test-chat-secret-with-at-least-32-characters"
+TEST_ALLOWED_ORIGIN = "https://portfolio.test"
+
+
+@pytest.fixture(autouse=True)
+def configure_test_security(monkeypatch) -> None:
+    """Keep endpoint tests independent from local or CI environment files."""
+
+    monkeypatch.setattr(settings, "chat_api_secret", TEST_CHAT_SECRET)
+    monkeypatch.setattr(settings, "allowed_origins", [TEST_ALLOWED_ORIGIN])
 
 
 def auth_headers() -> dict[str, str]:
-    headers: dict[str, str] = {}
-    if settings.chat_api_secret:
-        headers["X-Interview-Secret"] = settings.chat_api_secret
-    elif settings.allowed_origins:
-        headers["Origin"] = settings.allowed_origins[0]
-    return headers
+    return {"X-Interview-Secret": TEST_CHAT_SECRET}
 
 
 class SuccessfulOpenAIService:
